@@ -24,7 +24,7 @@ bevy = { git = "https://github.com/bevyengine/bevy", branch = "pipelined-renderi
     "bevy_winit",
     "bevy_core_pipeline"
 ] }
-egui = "0.14.0"
+egui = "0.15.0"
 webbrowser = { version = "0.5.5", optional = true }
 winit = { version = "0.25.0", features = ["x11"], default-features = false }
 bytemuck = { version = "1.7.0", features = ["derive"] }
