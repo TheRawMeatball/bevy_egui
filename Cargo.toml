@@ -21,7 +21,9 @@ open_url = ["webbrowser"]
 [dependencies]
 bevy = { version = "0.5", default-features = false, features = [
     "render",
-    "bevy_winit"
+    "bevy_winit",
+	"bevy_core_pipeline",
+	"bevy_render2"
 ] }
 egui = "0.15.0"
 webbrowser = { version = "0.5.5", optional = true }

@@ -1,29 +1,7 @@
-use bevy::{
-    core::{bytes_of, cast_slice},
-    prelude::{FromWorld, Handle, World},
-    render2::{
-        render_asset::RenderAssets,
-        render_graph::{Node, NodeRunError, RenderGraphContext},
-        render_resource::{
-            BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-            BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType,
-            BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferInitDescriptor,
-            BufferSize, BufferUsages, ColorTargetState, ColorWrites, Extent3d, FragmentState,
-            FrontFace, IndexFormat, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor,
-            PrimitiveState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
-            RenderPipelineDescriptor, ShaderStages, TextureDimension, TextureFormat,
-            TextureSampleType, TextureViewDimension, VertexAttribute, VertexBufferLayout,
-            VertexFormat, VertexState, VertexStepMode,
-        },
-        renderer::{RenderContext, RenderDevice, RenderQueue},
-        shader::Shader,
-        texture::{BevyDefault, Image},
-        view::ExtractedWindows,
-    },
-    utils::{HashMap, HashSet},
-    window::WindowId,
-};
-use wgpu::{BufferBinding, BufferDescriptor};
+use std::borrow::Cow;
+
+use bevy::{core::{bytes_of, cast_slice}, prelude::{FromWorld, Handle, World}, render2::{render_asset::RenderAssets, render_graph::{Node, NodeRunError, RenderGraphContext}, render_resource::{BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferInitDescriptor, BufferSize, BufferUsages, ColorTargetState, ColorWrites, Extent3d, FrontFace, IndexFormat, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor, PrimitiveState, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, ShaderStages, TextureDimension, TextureFormat, TextureSampleType, TextureViewDimension, VertexAttribute, VertexFormat, VertexStepMode}, renderer::{RenderContext, RenderDevice, RenderQueue}, texture::{BevyDefault, Image}, view::ExtractedWindows}, utils::{HashMap, HashSet}, window::WindowId};
+use wgpu::{BufferBinding, BufferDescriptor, ShaderModuleDescriptor, ShaderSource, RenderPipelineDescriptor, VertexState, VertexBufferLayout, FragmentState};
 
 use crate::render_systems::{
     EguiTransform, ExtractedEguiContext, ExtractedEguiSettings, ExtractedEguiTextures,
@@ -43,7 +21,7 @@ impl FromWorld for EguiShaders {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
-        let shader = Shader::from_wgsl(include_str!("egui.wgsl"));
+        let shader = ShaderModuleDescriptor {label: None, source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("egui.wgsl"))) };
         let shader_module = render_device.create_shader_module(&shader);
 
         let transform_buffer_size =
