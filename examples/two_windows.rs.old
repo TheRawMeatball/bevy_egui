@@ -1,16 +1,4 @@
-use bevy::{
-    prelude::*,
-    render::{
-        camera::{ActiveCameras, Camera},
-        pass::*,
-        render_graph::{
-            base::MainPass, CameraNode, PassNode, RenderGraph, WindowSwapChainNode,
-            WindowTextureNode,
-        },
-        texture::{Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsage},
-    },
-    window::{CreateWindow, WindowDescriptor, WindowId},
-};
+use bevy::{PipelinedDefaultPlugins, prelude::*, render2::{camera::{ActiveCameras, Camera}, render_graph::RenderGraph}, window::{CreateWindow, WindowDescriptor, WindowId}};
 use bevy_egui::{egui, EguiContext, EguiPlugin};
 
 const BEVY_TEXTURE_ID: u64 = 0;
@@ -21,7 +9,7 @@ fn main() {
         .insert_resource(Msaa { samples: 4 })
         .init_resource::<SharedUiState>()
         .add_state(AppState::CreateWindow)
-        .add_plugins(DefaultPlugins)
+        .add_plugins(PipelinedDefaultPlugins)
         .add_plugin(EguiPlugin)
         .add_startup_system(load_assets.system())
         .add_system_set(
