@@ -19,7 +19,7 @@ manage_clipboard = ["clipboard", "thread_local"]
 open_url = ["webbrowser"]
 
 [dependencies]
-bevy = { git = "https://github.com/TheRawMeatball/bevy", branch = "runs-ui4-pipelined", default-features = false, features = [
+bevy = { git = "https://github.com/TheRawMeatball/bevy", branch = "runs-ui4-migrated", default-features = false, features = [
     "bevy_render2",
     "bevy_winit",
     "bevy_core_pipeline"
