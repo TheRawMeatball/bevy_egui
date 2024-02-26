@@ -1,5 +1,5 @@
 use bevy::{prelude::*, window::PrimaryWindow};
-use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiSettings};
+use bevy_egui::{egui, texture_loader::AsImageSource, EguiContexts, EguiPlugin, EguiSettings};
 
 struct Images {
     bevy_icon: Handle<Image>,
@@ -76,11 +76,6 @@ fn update_ui_scale_factor_system(
 
 fn ui_example_system(
     mut ui_state: ResMut<UiState>,
-    // You are not required to store Egui texture ids in systems. We store this one here just to
-    // demonstrate that rendering by using a texture id of a removed image is handled without
-    // making bevy_egui panic.
-    mut rendered_texture_id: Local<egui::TextureId>,
-    mut is_initialized: Local<bool>,
     // If you need to access the ids from multiple systems, you can also initialize the `Images`
     // resource while building the app and use `Res<Images>` instead.
     images: Local<Images>,
@@ -100,11 +95,6 @@ fn ui_example_system(
     let mut load = false;
     let mut remove = false;
     let mut invert = false;
-
-    if !*is_initialized {
-        *is_initialized = true;
-        *rendered_texture_id = contexts.add_image(images.bevy_icon.clone_weak());
-    }
 
     let ctx = contexts.ctx_mut();
 
@@ -135,10 +125,11 @@ fn ui_example_system(
                 remove = ui.button("Remove").clicked();
             });
 
-            ui.add(egui::widgets::Image::new(egui::load::SizedTexture::new(
-                *rendered_texture_id,
-                [256.0, 256.0],
-            )));
+            ui.add(egui::widgets::Image::new(if !ui_state.inverted {
+                images.bevy_icon.id().as_source()
+            } else {
+                images.bevy_icon_inverted.id().as_source()
+            }));
 
             ui.allocate_space(egui::Vec2::new(1.0, 10.0));
             ui.checkbox(&mut ui_state.is_window_open, "Window Is Open");
@@ -196,18 +187,6 @@ fn ui_example_system(
 
     if invert {
         ui_state.inverted = !ui_state.inverted;
-    }
-    if load || invert {
-        // If an image is already added to the context, it'll return an existing texture id.
-        if ui_state.inverted {
-            *rendered_texture_id = contexts.add_image(images.bevy_icon_inverted.clone_weak());
-        } else {
-            *rendered_texture_id = contexts.add_image(images.bevy_icon.clone_weak());
-        };
-    }
-    if remove {
-        contexts.remove_image(&images.bevy_icon);
-        contexts.remove_image(&images.bevy_icon_inverted);
     }
 }
 

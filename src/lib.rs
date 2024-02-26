@@ -59,10 +59,13 @@ pub mod systems;
 /// Egui render node.
 #[cfg(feature = "render")]
 pub mod egui_node;
+#[cfg(feature = "render")]
+pub mod texture_loader;
 
 pub use egui;
 
-use crate::systems::*;
+use crate::{systems::*, texture_loader::EguiUserTextures};
+
 #[cfg(feature = "render")]
 use crate::{
     egui_node::{EguiPipeline, EGUI_SHADER_HANDLE},
@@ -95,7 +98,7 @@ use bevy::{
     ecs::{
         query::{QueryData, QueryEntityError},
         schedule::apply_deferred,
-        system::SystemParam,
+        system::{Res, SystemParam},
     },
     input::InputSystem,
     prelude::{
@@ -300,8 +303,7 @@ impl EguiContext {
 }
 
 #[derive(SystemParam)]
-/// A helper SystemParam that provides a way to get `[EguiContext]` with less boilerplate and
-/// combines a proxy interface to the [`EguiUserTextures`] resource.
+/// A helper SystemParam that provides a way to get `[EguiContext]` with less boilerplate
 pub struct EguiContexts<'w, 's> {
     q: Query<
         'w,
@@ -313,8 +315,6 @@ pub struct EguiContexts<'w, 's> {
         ),
         With<Window>,
     >,
-    #[cfg(feature = "render")]
-    user_textures: ResMut<'w, EguiUserTextures>,
 }
 
 impl<'w, 's> EguiContexts<'w, 's> {
@@ -430,81 +430,11 @@ impl<'w, 's> EguiContexts<'w, 's> {
                 }
             })
     }
-
-    /// Can accept either a strong or a weak handle.
-    ///
-    /// You may want to pass a weak handle if you control removing texture assets in your
-    /// application manually and you don't want to bother with cleaning up textures in Egui.
-    ///
-    /// You'll want to pass a strong handle if a texture is used only in Egui and there are no
-    /// handle copies stored anywhere else.
-    #[cfg(feature = "render")]
-    pub fn add_image(&mut self, image: Handle<Image>) -> egui::TextureId {
-        self.user_textures.add_image(image)
-    }
-
-    /// Removes the image handle and an Egui texture id associated with it.
-    #[cfg(feature = "render")]
-    #[track_caller]
-    pub fn remove_image(&mut self, image: &Handle<Image>) -> Option<egui::TextureId> {
-        self.user_textures.remove_image(image)
-    }
-
-    /// Returns an associated Egui texture id.
-    #[cfg(feature = "render")]
-    #[must_use]
-    #[track_caller]
-    pub fn image_id(&self, image: &Handle<Image>) -> Option<egui::TextureId> {
-        self.user_textures.image_id(image)
-    }
 }
 
 /// A resource for storing `bevy_egui` mouse position.
 #[derive(Resource, Component, Default, Deref, DerefMut)]
 pub struct EguiMousePosition(pub Option<(Entity, egui::Vec2)>);
-
-/// A resource for storing `bevy_egui` user textures.
-#[derive(Clone, Resource, Default, ExtractResource)]
-#[cfg(feature = "render")]
-pub struct EguiUserTextures {
-    textures: HashMap<Handle<Image>, u64>,
-    last_texture_id: u64,
-}
-
-#[cfg(feature = "render")]
-impl EguiUserTextures {
-    /// Can accept either a strong or a weak handle.
-    ///
-    /// You may want to pass a weak handle if you control removing texture assets in your
-    /// application manually and you don't want to bother with cleaning up textures in Egui.
-    ///
-    /// You'll want to pass a strong handle if a texture is used only in Egui and there are no
-    /// handle copies stored anywhere else.
-    pub fn add_image(&mut self, image: Handle<Image>) -> egui::TextureId {
-        let id = *self.textures.entry(image.clone()).or_insert_with(|| {
-            let id = self.last_texture_id;
-            log::debug!("Add a new image (id: {}, handle: {:?})", id, image);
-            self.last_texture_id += 1;
-            id
-        });
-        egui::TextureId::User(id)
-    }
-
-    /// Removes the image handle and an Egui texture id associated with it.
-    pub fn remove_image(&mut self, image: &Handle<Image>) -> Option<egui::TextureId> {
-        let id = self.textures.remove(image);
-        log::debug!("Remove image (id: {:?}, handle: {:?})", id, image);
-        id.map(egui::TextureId::User)
-    }
-
-    /// Returns an associated Egui texture id.
-    #[must_use]
-    pub fn image_id(&self, image: &Handle<Image>) -> Option<egui::TextureId> {
-        self.textures
-            .get(image)
-            .map(|&id| egui::TextureId::User(id))
-    }
-}
 
 /// Stores physical size and scale factor, is used as a helper to calculate logical size.
 #[derive(Component, Debug, Default, Clone, Copy, PartialEq)]
@@ -585,8 +515,6 @@ impl Plugin for EguiPlugin {
         world.init_resource::<EguiMousePosition>();
         world.insert_resource(TouchId::default());
         #[cfg(feature = "render")]
-        app.add_plugins(ExtractResourcePlugin::<EguiUserTextures>::default());
-        #[cfg(feature = "render")]
         app.add_plugins(ExtractResourcePlugin::<ExtractedEguiManagedTextures>::default());
         #[cfg(feature = "render")]
         app.add_plugins(ExtractResourcePlugin::<EguiSettings>::default());
@@ -660,11 +588,13 @@ impl Plugin for EguiPlugin {
 
     #[cfg(feature = "render")]
     fn finish(&self, app: &mut App) {
+        let user_textures = app.world.resource::<EguiUserTextures>().clone();
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .init_resource::<egui_node::EguiPipeline>()
                 .init_resource::<SpecializedRenderPipelines<EguiPipeline>>()
                 .init_resource::<EguiTransforms>()
+                .insert_resource(user_textures)
                 .add_systems(
                     ExtractSchedule,
                     render_systems::setup_new_windows_render_system,
@@ -722,11 +652,16 @@ pub struct EguiManagedTexture {
 /// Adds bevy_egui components to newly created windows.
 pub fn setup_new_windows_system(
     mut commands: Commands,
+    user_textures: Res<EguiUserTextures>,
     new_windows: Query<Entity, (Added<Window>, Without<EguiContext>)>,
 ) {
     for window in new_windows.iter() {
+        let context = EguiContext::default();
+        context
+            .0
+            .add_texture_loader(user_textures.loader.clone() as _);
         commands.entity(window).insert((
-            EguiContext::default(),
+            context,
             EguiMousePosition::default(),
             EguiRenderOutput::default(),
             EguiInput::default(),
@@ -796,12 +731,15 @@ pub fn update_egui_textures_system(
 
 #[cfg(feature = "render")]
 fn free_egui_textures_system(
-    mut egui_user_textures: ResMut<EguiUserTextures>,
+    egui_user_textures: Res<EguiUserTextures>,
     mut egui_render_output: Query<(Entity, &mut EguiRenderOutput), With<Window>>,
     mut egui_managed_textures: ResMut<EguiManagedTextures>,
     mut image_assets: ResMut<Assets<Image>>,
     mut image_events: EventReader<AssetEvent<Image>>,
 ) {
+    use egui::load::TextureLoader;
+    use texture_loader::AsImageSource;
+
     for (window_id, mut egui_render_output) in egui_render_output.iter_mut() {
         let free_textures = std::mem::take(&mut egui_render_output.textures_delta.free);
         for texture_id in free_textures {
@@ -816,9 +754,25 @@ fn free_egui_textures_system(
 
     for image_event in image_events.read() {
         if let AssetEvent::Removed { id } = image_event {
-            egui_user_textures.remove_image(&Handle::<Image>::Weak(*id));
+            egui_user_textures.loader.forget(&id.into_uri());
         }
     }
+
+    let mut loader = egui_user_textures.loader.map.lock();
+    egui_user_textures
+        .loader
+        .new
+        .lock()
+        .retain(|(new_uri, new_asset)| {
+            if let Some(asset) = image_assets.get(*new_asset) {
+                if let Some(entry) = loader.get_mut(new_uri) {
+                    entry.size = Some(<[f32; 2]>::from(asset.size_f32()).into());
+                    return false;
+                }
+            }
+
+            true
+        });
 }
 
 /// Egui's render graph config.

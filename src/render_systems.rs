@@ -1,17 +1,18 @@
 use crate::{
     egui_node::{EguiNode, EguiPipeline, EguiPipelineKey},
-    EguiManagedTextures, EguiSettings, EguiUserTextures, WindowSize,
+    texture_loader::EguiUserTextures,
+    EguiManagedTextures, EguiSettings, WindowSize,
 };
 use bevy::{
-    ecs::system::SystemParam,
     prelude::*,
     render::{
         extract_resource::ExtractResource,
         render_asset::RenderAssets,
         render_graph::{RenderGraph, RenderLabel},
         render_resource::{
-            BindGroup, BindGroupEntry, BindingResource, BufferId, CachedRenderPipelineId,
-            DynamicUniformBuffer, PipelineCache, ShaderType, SpecializedRenderPipelines,
+            BindGroup, BindGroupEntries, BindGroupEntry, BindingResource, BufferId,
+            CachedRenderPipelineId, DynamicUniformBuffer, PipelineCache, Sampler, ShaderType,
+            SpecializedRenderPipelines,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::Image,
@@ -45,15 +46,6 @@ pub enum EguiTextureId {
     User(u64),
 }
 
-/// Extracted Egui textures.
-#[derive(SystemParam)]
-pub struct ExtractedEguiTextures<'w> {
-    /// Maps Egui managed texture ids to Bevy image handles.
-    pub egui_textures: Res<'w, ExtractedEguiManagedTextures>,
-    /// Maps Bevy managed texture handles to Egui user texture ids.
-    pub user_textures: Res<'w, EguiUserTextures>,
-}
-
 /// [`RenderLabel`] type for the Egui pass.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub struct EguiPass {
@@ -61,24 +53,6 @@ pub struct EguiPass {
     pub window_index: u32,
     /// Generation of the window entity.
     pub window_generation: u32,
-}
-
-impl ExtractedEguiTextures<'_> {
-    /// Returns an iterator over all textures (both Egui and Bevy managed).
-    pub fn handles(&self) -> impl Iterator<Item = (EguiTextureId, AssetId<Image>)> + '_ {
-        self.egui_textures
-            .0
-            .iter()
-            .map(|(&(window, texture_id), managed_tex)| {
-                (EguiTextureId::Managed(window, texture_id), managed_tex.id())
-            })
-            .chain(
-                self.user_textures
-                    .textures
-                    .iter()
-                    .map(|(handle, id)| (EguiTextureId::User(*id), handle.id())),
-            )
-    }
 }
 
 /// Sets up the pipeline for newly created windows.
@@ -187,32 +161,58 @@ pub struct EguiTextureBindGroups(pub HashMap<EguiTextureId, BindGroup>);
 /// Queues bind groups.
 pub fn queue_bind_groups_system(
     mut commands: Commands,
-    egui_textures: ExtractedEguiTextures,
+    egui_textures: Res<ExtractedEguiManagedTextures>,
+    user_textures: Res<EguiUserTextures>,
+    mut sampler_cache: Local<[Option<Sampler>; 12]>,
     render_device: Res<RenderDevice>,
     gpu_images: Res<RenderAssets<Image>>,
     egui_pipeline: Res<EguiPipeline>,
 ) {
-    let bind_groups = egui_textures
-        .handles()
-        .filter_map(|(texture, handle_id)| {
-            let gpu_image = gpu_images.get(&Handle::Weak(handle_id))?;
+    let managed = egui_textures
+        .0
+        .iter()
+        .map(|(&(window, texture_id), managed_tex)| {
+            (EguiTextureId::Managed(window, texture_id), managed_tex.id())
+        })
+        .filter_map(|(texture, asset_id)| {
+            let gpu_image = gpu_images.get(asset_id)?;
             let bind_group = render_device.create_bind_group(
                 None,
                 &egui_pipeline.texture_bind_group_layout,
-                &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::TextureView(&gpu_image.texture_view),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: BindingResource::Sampler(&gpu_image.sampler),
-                    },
-                ],
+                &BindGroupEntries::sequential((
+                    BindingResource::TextureView(&gpu_image.texture_view),
+                    BindingResource::Sampler(&gpu_image.sampler),
+                )),
             );
             Some((texture, bind_group))
-        })
-        .collect();
+        });
+
+    let map = user_textures.loader.map.lock();
+    let user =
+        map.values()
+            .flat_map(|entry| entry.ids())
+            .filter_map(|(asset_id, texture, options)| {
+                let gpu_image = gpu_images.get(asset_id)?;
+                let sampler = sampler_cache[options]
+                    .get_or_insert_with(|| {
+                        let options = crate::texture_loader::decode_texture_option_bits(options);
+                        let descriptor =
+                            crate::egui_node::texture_options_as_sampler_descriptor(&options);
+                        render_device.create_sampler(&descriptor.as_wgpu())
+                    })
+                    .clone();
+                let bind_group = render_device.create_bind_group(
+                    None,
+                    &egui_pipeline.texture_bind_group_layout,
+                    &BindGroupEntries::sequential((
+                        BindingResource::TextureView(&gpu_image.texture_view),
+                        BindingResource::Sampler(&sampler),
+                    )),
+                );
+                Some((texture, bind_group))
+            });
+
+    let bind_groups = managed.chain(user).collect();
 
     commands.insert_resource(EguiTextureBindGroups(bind_groups))
 }

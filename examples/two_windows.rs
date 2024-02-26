@@ -3,7 +3,7 @@ use bevy::{
     render::camera::RenderTarget,
     window::{PresentMode, PrimaryWindow, WindowRef, WindowResolution},
 };
-use bevy_egui::{EguiContext, EguiPlugin, EguiUserTextures};
+use bevy_egui::{texture_loader::AsImageSource, EguiContext, EguiPlugin};
 
 #[derive(Resource)]
 struct Images {
@@ -62,13 +62,11 @@ struct SharedUiState {
 }
 
 fn ui_first_window_system(
-    mut egui_user_textures: ResMut<EguiUserTextures>,
     mut ui_state: Local<UiState>,
     mut shared_ui_state: ResMut<SharedUiState>,
     images: Res<Images>,
     mut egui_ctx: Query<&mut EguiContext, With<PrimaryWindow>>,
 ) {
-    let bevy_texture_id = egui_user_textures.add_image(images.bevy_icon.clone_weak());
     let Ok(mut ctx) = egui_ctx.get_single_mut() else {
         return;
     };
@@ -84,21 +82,16 @@ fn ui_first_window_system(
                 ui.text_edit_singleline(&mut shared_ui_state.shared_input);
             });
 
-            ui.add(egui::widgets::Image::new(egui::load::SizedTexture::new(
-                bevy_texture_id,
-                [256.0, 256.0],
-            )));
+            ui.add(egui::widgets::Image::new(images.bevy_icon.id().as_source()));
         });
 }
 
 fn ui_second_window_system(
-    mut egui_user_textures: ResMut<EguiUserTextures>,
     mut ui_state: Local<UiState>,
     mut shared_ui_state: ResMut<SharedUiState>,
     images: Res<Images>,
     mut egui_ctx: Query<&mut EguiContext, Without<PrimaryWindow>>,
 ) {
-    let bevy_texture_id = egui_user_textures.add_image(images.bevy_icon.clone_weak());
     let Ok(mut ctx) = egui_ctx.get_single_mut() else {
         return;
     };
@@ -114,9 +107,6 @@ fn ui_second_window_system(
                 ui.text_edit_singleline(&mut shared_ui_state.shared_input);
             });
 
-            ui.add(egui::widgets::Image::new(egui::load::SizedTexture::new(
-                bevy_texture_id,
-                [256.0, 256.0],
-            )));
+            ui.add(egui::widgets::Image::new(images.bevy_icon.id().as_source()));
         });
 }
